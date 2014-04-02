@@ -41,7 +41,7 @@ void SPIInit ()
 	/* IMPORTANT: The Baud Rate must be set after the transmitter is
 	enabled */
 	UBRR1 = 51;
-}
+}//
 void initCapSense()
 {
 	//RECEIVE PINS PB0 - PB5
