@@ -1,7 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Atmel Studio Solution File, Format Version 11.00
-Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "ShellModule", "Shell\shell.cproj", "{F2766E0F-2085-4E48-9501-8A6789F0DBDA}"
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "shell", "Shell\shell.cproj", "{F2766E0F-2085-4E48-9501-8A6789F0DBDA}"
+EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "core", "..\SeniorDesignCore\core\core.cproj", "{264431F0-D15F-4055-A8A1-27C3DD0DA61B}"
+EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "MicroTest", "MicroTest\MicroTest.cproj", "{CAD5E864-2191-45C8-A000-A603196B4EDB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -13,6 +17,14 @@ Global
 		{F2766E0F-2085-4E48-9501-8A6789F0DBDA}.Debug|AVR.Build.0 = Debug|AVR
 		{F2766E0F-2085-4E48-9501-8A6789F0DBDA}.Release|AVR.ActiveCfg = Release|AVR
 		{F2766E0F-2085-4E48-9501-8A6789F0DBDA}.Release|AVR.Build.0 = Release|AVR
+		{264431F0-D15F-4055-A8A1-27C3DD0DA61B}.Debug|AVR.ActiveCfg = Debug|AVR
+		{264431F0-D15F-4055-A8A1-27C3DD0DA61B}.Debug|AVR.Build.0 = Debug|AVR
+		{264431F0-D15F-4055-A8A1-27C3DD0DA61B}.Release|AVR.ActiveCfg = Release|AVR
+		{264431F0-D15F-4055-A8A1-27C3DD0DA61B}.Release|AVR.Build.0 = Release|AVR
+		{CAD5E864-2191-45C8-A000-A603196B4EDB}.Debug|AVR.ActiveCfg = Debug|AVR
+		{CAD5E864-2191-45C8-A000-A603196B4EDB}.Debug|AVR.Build.0 = Debug|AVR
+		{CAD5E864-2191-45C8-A000-A603196B4EDB}.Release|AVR.ActiveCfg = Release|AVR
+		{CAD5E864-2191-45C8-A000-A603196B4EDB}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
