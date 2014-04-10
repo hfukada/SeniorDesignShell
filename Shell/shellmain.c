@@ -9,27 +9,27 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 // Function Prototypes
-void SPIInit ();
+void initSPI ();
 void initCapSense ();
 void initPressureSense ();
 int getBlow ();
 void mainLoop ();
-void senseCap()
+void senseCap();
 
-void InitUART();
-void TransmitByte();
+void InitUART( unsigned char );
+void TransmitByte( unsigned char );
 
 
 int baseBreathValue;
 // Struct Definitions
-typedef struct __capTime{
+struct __capTime{
 	char prevVal;
     char startTime;
     char capWaiting;
     char time;
-} capTime;
+};
 // Global variables
-capTime globT[6];
+struct __capTime globT[6];
 
 int main(void)
 {
@@ -39,24 +39,22 @@ int main(void)
 }
 void initSystem()
 {
-	SPIInit();
+	initSPI();
 	initTimer();
 	initInterrupts();
 	initCapSense();
 	initPressureSense();
-	InitUART( 51 );
 }
 void initTimer()
 {
         TCCR0B = (1<<CS00); //can change registers to increase frequency
-        globT.
 }
 void initInterrupts()
 {
         PCMSK0 |= (1<<PCINT5)|(1<<PCINT4)|(1<<PCINT3)|(1<<PCINT2)|(1<<PCINT1)|(1<<PCINT0); //turn on receive pin interrupts
         PCICR = 1; //turn on digital pin interrupts
 }
-void SPIInit ()
+void initSPI ()
 {
 	UBRR1 = 0;
 	/* Setting the XCKn port pin as output, enables master mode. */
@@ -73,6 +71,7 @@ void SPIInit ()
 }//
 void initCapSense()
 {
+	int i;
 	//RECEIVE PINS PB0 - PB5
 	PCMSK0 = (1<<PCINT5)|(1<<PCINT4)|(1<<PCINT3)|(1<<PCINT2)|(1<<PCINT1)|(1<<PCINT0);//set pin interrupts
 	PCICR = 0; //disable pin change interrupts
@@ -101,27 +100,34 @@ void initPressureSense()
 
 int getBlow(){
 	char currBlow = ADCH;
-	return currBlow > baseBreath ? currBlow - baseBreathValue : 0;
+	return currBlow > baseBreathValue ? currBlow - baseBreathValue : 0;
 }
 void mainLoop()
 {
 	char i;
-	while(){
+	while(1){
+		TransmitByte(0xF);
+		TransmitByte('/0');
+	}
+	/*while(1){
 		senseCap();
 		//getBlow();
 		for (i=0; i<6;i++){
 			TransmitByte( globT[i].time );
 		}
-	}	
+		TransmitByte('\0');
+	}*/
 }
 void senseCap()
 {
         int i;
+		i = 4;
+		i = 7;
         //toggle send pins and start time
         PIND |= (1<<PORTD4);
         globT[0].startTime = TCNT0;
         PINB |= (1<<PORTB4);
-        globT[1].startTime = TCNT0
+        globT[1].startTime = TCNT0;
         PIND |= (1<<PORTD6);
         globT[2].startTime = TCNT0;
         PIND |= (1<<PORTD7);
@@ -137,6 +143,7 @@ void senseCap()
                 while(globT[i].capWaiting == 1);
                 globT[i].capWaiting = 1;
         }
+		i = 5;
 }
 ISR(PCINT0_vect)
 {
@@ -149,20 +156,11 @@ ISR(PCINT0_vect)
 		{
 				globT[i].capWaiting = 0;
 				globT[i].prevVal = val;
-				globT[i].time = TCNT0 - globT.startTime; //endTime-startTime
+				globT[i].time = TCNT0 - globT[i].startTime; //endTime-startTime
 		}
 	}
 }
-/* Initialize UART */
-void InitUART( unsigned char baudrate )
-{
-	
-	UBRR1H = baudrate >> 8;                  /* Set the baud rate */
-	UBRR1L = baudrate;
-	UCSR1B = (1 << RXEN1) | (1 << TXEN1);  /* Enable UART receiver and transmitter */
-	/* Set frame format: 8data, 2stop bit */
-	UCSR1C = (1 << USBS1) | (3 << UCSZ10);
-}
+//Transfer SPI
 void TransmitByte( unsigned char data )
 {
 	while ( !(UCSR1A & (1 << UDRE1)) )
