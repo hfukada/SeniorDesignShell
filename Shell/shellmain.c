@@ -28,9 +28,9 @@ void TransmitByte( unsigned char );
 // Struct Definitions
 struct __capTime{
 	char prevVal;
-	char startTime;
+	int startTime;
 	volatile char capWaiting;
-	char time;
+	int time;
 };
 // Global variables
 struct __capTime globT[6];
@@ -48,6 +48,28 @@ int main(void)
 	sei();
 	mainLoop();
 }
+
+//-----------------------------------------------------------------------------------------------------------------
+// main loop
+//-----------------------------------------------------------------------------------------------------------------
+void mainLoop()
+{
+	char i;
+	char note;
+	int vol;
+	while(1){
+		senseCapOneWay();
+		note = genNote();
+		getBlow();
+		vol = genVolume();
+		sendToCore(note,vol);
+	}	
+}
+
+
+//-----------------------------------------------------------------------------------------------------------------
+// INITIALIZATIONS
+//-----------------------------------------------------------------------------------------------------------------
 void initSystem()
 {
 	initSPI();
@@ -55,27 +77,29 @@ void initSystem()
 	initCapSense();
 	initPressureSense();
 }
+
 void initTimer()
 {
 	TCCR0B = (1<<CS00)|(1<<CS01); //can change registers to increase frequency
 	WDTCSR &= ~(1<<WDE); //disable watchdog timer
 }
+
 void initSPI ()
 {
 	UBRR1 = 0;
 	/* Setting the XCKn port pin as output, enables master mode. */
 	DDRD |= _BV(5);
-	//XCK1_DDR |= (1<<XCK1);
 	/* Set MSPI mode of operation and SPI data mode 0. */
 	//UCSR1C = (1<<UMSEL11)|(1<<UMSEL10)|(1<< UCSZ11)|(1<< UCSZ10)|(0<<UCPOL1);
 	UCSR1C = (1<<UMSEL11)|(1<<UMSEL10)|(0<<UCPOL1);
 	/* Enable receiver and transmitter. */
-	UCSR1B = (1<<RXEN1)|(1<<TXEN1);
+	UCSR1B = (1<<TXEN1);
 	/* Set baud rate. */
 	/* IMPORTANT: The Baud Rate must be set after the transmitter is
 		 enabled */
 	UBRR1 = 51;
-}//
+}
+
 void initCapSense()
 {
 	int i;
@@ -100,6 +124,7 @@ void initCapSense()
 		globT[i].prevVal = 0;
 	}
 }
+
 void initPressureSense()
 {
 	ADMUX |= (1<<REFS0)|(1<<REFS1)|(1<<ADLAR)|(1<<4); // 1<<4 => 010000 -> differential input (ADC0+, ADC1-) 1x gain.
@@ -107,23 +132,17 @@ void initPressureSense()
 
 	baseBreathValue = ADCH;
 }
-void mainLoop()
-{
-	char i;
-	char note;
-	int vol;
-	while(1){
-		senseCapOneWay();
-		note = genNote();
-		getBlow();
-		vol = genVolume();
-		sendToCore(note,vol);
-	}	
-}
+
+
+//-----------------------------------------------------------------------------------------------------------------
+// Helper functions
+//-----------------------------------------------------------------------------------------------------------------
+
 int getBlow(){
 	char currBlow = ADCH;
 	return currBlow > baseBreathValue ? currBlow - baseBreathValue : 0;
 }
+
 void senseCapOneWay()
 {
 	int i;
@@ -132,42 +151,48 @@ void senseCapOneWay()
 
 	intrCnt = 0;
 	PORTD |= (1<<PIND4);
-	globT[0].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[0].startTime = TCNT1;
 	waitForCap(0);
 	PORTD &= ~(1<<PIND4);
 	waitForCap(0);
 
 	intrCnt = 1;
 	PORTB |= (1<<PINB6);
-	globT[1].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[1].startTime = TCNT1;
 	waitForCap(1);
 	PORTB &= ~(1<<PINB6);
 	waitForCap(1);
 
 	intrCnt = 2;
 	PORTD |= (1<<PIND6);
-	globT[2].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[2].startTime = TCNT1;
 	waitForCap(2);
 	PORTD &= ~(1<<PIND6);
 	waitForCap(2);
 
 	intrCnt = 3;
 	PORTD |= (1<<PIND7);
-	globT[3].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[3].startTime = TCNT1;
 	waitForCap(3);
 	PORTD &= ~(1<<PIND7);
 	waitForCap(3);
 
 	intrCnt = 4;
 	PORTC |= (1<<PINC6);
-	globT[4].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[4].startTime = TCNT1;
 	waitForCap(4);
 	PORTC &= ~(1<<PINC6);
 	waitForCap(4);
 
 	intrCnt = 5;
 	PORTC |= (1<<PINC7);
-	globT[5].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[5].startTime = TCNT1;
 	waitForCap(5);
 	PORTC &= ~(1<<PINC7);
 	waitForCap(5);
@@ -188,7 +213,7 @@ ISR(PCINT0_vect)
 		globT[intrCnt].capWaiting = 0;
 		globT[intrCnt].prevVal = val;
 		if (val == 1)
-			globT[intrCnt].time = TCNT0 - globT[intrCnt].startTime; //endTime-startTime
+			globT[intrCnt].time = TCNT1 - globT[intrCnt].startTime; //endTime-startTime
 	}
 }
 //generate MIDI
