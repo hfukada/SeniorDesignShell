@@ -9,8 +9,8 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
-#define CAP_HIGH_THRESH 0x80
-#define CAP_LOW_THRESH 0x25
+#define CAP_HIGH_THRESH 0x25
+#define CAP_LOW_THRESH 0x10
 // Function Prototypes
 void initSPI ();
 void initCapSense ();
@@ -19,8 +19,9 @@ int getBlow ();
 void mainLoop ();
 void senseCapOneWay();
 void senseCapTwoWay();
+void testSend();
 
-void InitUART( unsigned char );
+void InitUART( unsigned char );  
 void TransmitByte( unsigned char );
 
 
@@ -30,12 +31,33 @@ struct __capTime{
 	char prevVal;
 	int startTime;
 	volatile char capWaiting;
-	int time;
+	volatile unsigned char time;
+	volatile unsigned char calibration;
+};
+struct __midiNoteOff{
+	char status;
+	char note;
+	char velocity;
+};
+struct __midiNoteOn{
+	char status;
+	char note;
+	char velocity;
+};
+struct _midiPitchBend{
+	char status;
+	char lsb;
+	char msb;
+};
+struct __midiVolume{
+	char status; //0xB0
+	char control; //0x07
+	char value;
 };
 // Global variables
 struct __capTime globT[6];
 char capCalib[6];
-int baseBreathValue;
+char baseBreathValue;
 volatile char tempVal = 0;
 char intrCnt;
 
@@ -46,7 +68,8 @@ int main(void)
 	initSystem();
 	_delay_ms(100);
 	sei();
-	mainLoop();
+	calibrate();
+    mainLoop();
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -59,10 +82,11 @@ void mainLoop()
 	int vol;
 	while(1){
 		senseCapOneWay();
-		note = genNote();
-		getBlow();
-		vol = genVolume();
-		sendToCore(note,vol);
+		//note = genNote();
+		i = getBlow();
+		//vol = genVolume();
+		//sendToCore(note,vol);
+		testSend();
 	}	
 }
 
@@ -80,7 +104,7 @@ void initSystem()
 
 void initTimer()
 {
-	TCCR0B = (1<<CS00)|(1<<CS01); //can change registers to increase frequency
+	TCCR0B = (1<<CS01); //can change registers to increase frequency
 	WDTCSR &= ~(1<<WDE); //disable watchdog timer
 }
 
@@ -127,12 +151,21 @@ void initCapSense()
 
 void initPressureSense()
 {
-	ADMUX |= (1<<REFS0)|(1<<REFS1)|(1<<ADLAR)|(1<<4); // 1<<4 => 010000 -> differential input (ADC0+, ADC1-) 1x gain.
-	ADCSRA |= (1<<ADEN); //use ADLAR to read
+	//ADMUX |= (1<<REFS1)|(1<<ADLAR)|(1<<4); // MUX5:0 = 010000 -> differential input (ADC0{PF0}+, ADC1{PF1}-) 1x gain.
+	ADMUX |= (1<<REFS1)|(1<<ADLAR); // MUX5:0 = 000000 -> single input (ADC0{PF0} ) 1x gain.
+	ADCSRA |= (1<<ADEN)|(1<<ADSC)|(1<<ADATE); //use ADLAR to read
 
+}
+void calibrate()
+{
+	senseCapOneWay();
+	for (int i = 0; i < 6; i++)
+	{
+		globT[i].calibration = globT[i].time + CAP_LOW_THRESH;
+	}
+	
 	baseBreathValue = ADCH;
 }
-
 
 //-----------------------------------------------------------------------------------------------------------------
 // Helper functions
@@ -151,48 +184,48 @@ void senseCapOneWay()
 
 	intrCnt = 0;
 	PORTD |= (1<<PIND4);
-	TCNT1 = 0;
-	globT[0].startTime = TCNT1;
+	TCNT0 = 0;
+	globT[0].startTime = TCNT0;
 	waitForCap(0);
 	PORTD &= ~(1<<PIND4);
 	waitForCap(0);
 
 	intrCnt = 1;
 	PORTB |= (1<<PINB6);
-	TCNT1 = 0;
-	globT[1].startTime = TCNT1;
+	TCNT0 = 0;
+	globT[1].startTime = TCNT0;
 	waitForCap(1);
 	PORTB &= ~(1<<PINB6);
 	waitForCap(1);
 
 	intrCnt = 2;
 	PORTD |= (1<<PIND6);
-	TCNT1 = 0;
-	globT[2].startTime = TCNT1;
+	TCNT0 = 0;
+	globT[2].startTime = TCNT0;
 	waitForCap(2);
 	PORTD &= ~(1<<PIND6);
 	waitForCap(2);
 
 	intrCnt = 3;
 	PORTD |= (1<<PIND7);
-	TCNT1 = 0;
-	globT[3].startTime = TCNT1;
+	TCNT0 = 0;
+	globT[3].startTime = TCNT0;
 	waitForCap(3);
 	PORTD &= ~(1<<PIND7);
 	waitForCap(3);
 
 	intrCnt = 4;
 	PORTC |= (1<<PINC6);
-	TCNT1 = 0;
-	globT[4].startTime = TCNT1;
+	TCNT0 = 0;
+	globT[4].startTime = TCNT0;
 	waitForCap(4);
 	PORTC &= ~(1<<PINC6);
 	waitForCap(4);
 
 	intrCnt = 5;
 	PORTC |= (1<<PINC7);
-	TCNT1 = 0;
-	globT[5].startTime = TCNT1;
+	TCNT0 = 0;
+	globT[5].startTime = TCNT0;
 	waitForCap(5);
 	PORTC &= ~(1<<PINC7);
 	waitForCap(5);
@@ -213,31 +246,39 @@ ISR(PCINT0_vect)
 		globT[intrCnt].capWaiting = 0;
 		globT[intrCnt].prevVal = val;
 		if (val == 1)
-			globT[intrCnt].time = TCNT1 - globT[intrCnt].startTime; //endTime-startTime
+			globT[intrCnt].time = TCNT0 - globT[intrCnt].startTime; //endTime-startTime
 	}
 }
 //generate MIDI
-genPitchBend()
+void genPitchBend()
 {
 
 }
-genVolume()
+void genVolume()
 {
 
 }
-genNote()
+void genNote()
 {
-
+	//Status
 }
-testSend()
+void testSend()
 {
+	int i;
+	unsigned char checksum = 0;
+	unsigned char transVal;
 	for (i=0; i<6;i++){
-		if (globT[i].time >= 0x25)
-			TransmitByte(1);
+		if (globT[i].time > CAP_HIGH_THRESH + globT[i].calibration)
+			transVal = 0xFF;
+		else if (globT[i].time > globT[i].calibration)
+			transVal = globT[i].time - globT[i].calibration;
 		else
-			TransmitByte(0);
-		_delay_ms(100);
+			transVal = 0;
+		TransmitByte(transVal);
+		checksum += transVal;
+		_delay_ms(2);
 	}
+	TransmitByte(checksum);
 }
 //transmit spi
 void TransmitByte( unsigned char data )
