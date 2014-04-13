@@ -17,8 +17,7 @@ void initCapSense ();
 void initPressureSense ();
 int getBlow ();
 void mainLoop ();
-void senseCapOneWay();
-void senseCapTwoWay();
+void senseCap();
 void testSend();
 
 void InitUART( unsigned char );  
@@ -60,6 +59,7 @@ char capCalib[6];
 char baseBreathValue;
 volatile char tempVal = 0;
 char intrCnt;
+volatile char overflow = 0;
 
 int main(void)
 {
@@ -68,6 +68,12 @@ int main(void)
 	initSystem();
 	_delay_ms(100);
 	sei();
+	_delay_ms(100);
+	calibrate();
+	calibrate();
+	calibrate();
+	calibrate();
+	calibrate();
 	calibrate();
     mainLoop();
 }
@@ -81,7 +87,7 @@ void mainLoop()
 	char note;
 	int vol;
 	while(1){
-		senseCapOneWay();
+		senseCap();
 		//note = genNote();
 		i = getBlow();
 		//vol = genVolume();
@@ -105,6 +111,7 @@ void initSystem()
 void initTimer()
 {
 	TCCR0B = (1<<CS01); //can change registers to increase frequency
+	
 	WDTCSR &= ~(1<<WDE); //disable watchdog timer
 }
 
@@ -158,7 +165,7 @@ void initPressureSense()
 }
 void calibrate()
 {
-	senseCapOneWay();
+	senseCap();
 	for (int i = 0; i < 6; i++)
 	{
 		globT[i].calibration = globT[i].time + CAP_LOW_THRESH;
@@ -176,12 +183,15 @@ int getBlow(){
 	return currBlow > baseBreathValue ? currBlow - baseBreathValue : 0;
 }
 
-void senseCapOneWay()
+void senseCap()
 {
 	int i;
 	PCICR = 1; //enable pin change interrupt
 	//toggle send pins and start time
+	TCCR0B = (1<<CS01);
+	TIMSK0 = ( 1<<TOIE0);
 
+	overflow = 0;
 	intrCnt = 0;
 	PORTD |= (1<<PIND4);
 	TCNT0 = 0;
@@ -190,6 +200,7 @@ void senseCapOneWay()
 	PORTD &= ~(1<<PIND4);
 	waitForCap(0);
 
+	overflow = 0;
 	intrCnt = 1;
 	PORTB |= (1<<PINB6);
 	TCNT0 = 0;
@@ -198,6 +209,7 @@ void senseCapOneWay()
 	PORTB &= ~(1<<PINB6);
 	waitForCap(1);
 
+	overflow = 0;
 	intrCnt = 2;
 	PORTD |= (1<<PIND6);
 	TCNT0 = 0;
@@ -206,6 +218,7 @@ void senseCapOneWay()
 	PORTD &= ~(1<<PIND6);
 	waitForCap(2);
 
+	overflow = 0;
 	intrCnt = 3;
 	PORTD |= (1<<PIND7);
 	TCNT0 = 0;
@@ -214,6 +227,7 @@ void senseCapOneWay()
 	PORTD &= ~(1<<PIND7);
 	waitForCap(3);
 
+	overflow = 0;
 	intrCnt = 4;
 	PORTC |= (1<<PINC6);
 	TCNT0 = 0;
@@ -222,6 +236,7 @@ void senseCapOneWay()
 	PORTC &= ~(1<<PINC6);
 	waitForCap(4);
 
+	overflow = 0;
 	intrCnt = 5;
 	PORTC |= (1<<PINC7);
 	TCNT0 = 0;
@@ -229,14 +244,22 @@ void senseCapOneWay()
 	waitForCap(5);
 	PORTC &= ~(1<<PINC7);
 	waitForCap(5);
-
+	
+	TIMSK0 &= ~( 1<<TOIE0);
+	TCCR0B = 0;
 	PCICR = 0; //disable pin change interrupts
 }
 void waitForCap(char i)
 {
-	while(globT[i].capWaiting == 1);
+	while(globT[i].capWaiting == 1 && overflow == 0);
 	globT[i].capWaiting = 1;
+	if ( overflow == 1){
+		globT[i].time = 0xF0;
+	}
+	
 }
+
+
 ISR(PCINT0_vect)
 {
 	char val;
@@ -248,6 +271,10 @@ ISR(PCINT0_vect)
 		if (val == 1)
 			globT[intrCnt].time = TCNT0 - globT[intrCnt].startTime; //endTime-startTime
 	}
+}
+ISR(TIMER0_OVF_vect)
+{
+	overflow = 1;
 }
 //generate MIDI
 void genPitchBend()
@@ -268,8 +295,10 @@ void testSend()
 	unsigned char checksum = 0;
 	unsigned char transVal;
 	for (i=0; i<6;i++){
-		if (globT[i].time > CAP_HIGH_THRESH + globT[i].calibration)
-			transVal = 0xFF;
+		if (globT[i].time == 0xF0)
+			transVal = 0xF0;
+		//else if (globT[i].time > CAP_HIGH_THRESH + globT[i].calibration)
+		//	transVal = 0xFF;
 		else if (globT[i].time > globT[i].calibration)
 			transVal = globT[i].time - globT[i].calibration;
 		else

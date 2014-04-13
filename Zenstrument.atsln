@@ -7,6 +7,8 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "core", "..\SeniorDesignCore
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "MicroTest", "MicroTest\MicroTest.cproj", "{CAD5E864-2191-45C8-A000-A603196B4EDB}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "LOWLEVEL_MIDI1", "..\LOWLEVEL_MIDI1\LOWLEVEL_MIDI1.cproj", "{EA5FAED3-8024-4D8A-AFB9-54912F769C1A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -25,6 +27,10 @@ Global
 		{CAD5E864-2191-45C8-A000-A603196B4EDB}.Debug|AVR.Build.0 = Debug|AVR
 		{CAD5E864-2191-45C8-A000-A603196B4EDB}.Release|AVR.ActiveCfg = Release|AVR
 		{CAD5E864-2191-45C8-A000-A603196B4EDB}.Release|AVR.Build.0 = Release|AVR
+		{EA5FAED3-8024-4D8A-AFB9-54912F769C1A}.Debug|AVR.ActiveCfg = Debug|AVR
+		{EA5FAED3-8024-4D8A-AFB9-54912F769C1A}.Debug|AVR.Build.0 = Debug|AVR
+		{EA5FAED3-8024-4D8A-AFB9-54912F769C1A}.Release|AVR.ActiveCfg = Release|AVR
+		{EA5FAED3-8024-4D8A-AFB9-54912F769C1A}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
