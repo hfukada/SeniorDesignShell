@@ -10,57 +10,70 @@
 #include <avr/interrupt.h>
 
 #define CAP_HIGH_THRESH 0x25
-#define CAP_LOW_THRESH 0x10
+#define CAP_LOW_THRESH 0x80
+#define PRESS_HIGH_THRESH 0x2F
 // Function Prototypes
 void initSPI ();
 void initCapSense ();
 void initPressureSense ();
-int getBlow ();
+void getBlow ();
 void mainLoop ();
 void senseCap();
 void testSend();
 
 void InitUART( unsigned char );  
 void TransmitByte( unsigned char );
+char genTouched();
 
 
 
 // Struct Definitions
 struct __capTime{
 	char prevVal;
-	int startTime;
+	unsigned int startTime;
 	volatile char capWaiting;
-	volatile unsigned char time;
-	volatile unsigned char calibration;
+	volatile unsigned int time;
+	volatile unsigned int calibration;
 };
 struct __midiNoteOff{
-	char status;
+	char status; //0x80
 	char note;
-	char velocity;
+	char velocity; //doesn't matter
 };
 struct __midiNoteOn{
-	char status;
+	char status; //0x90
 	char note;
 	char velocity;
 };
-struct _midiPitchBend{
-	char status;
+struct __midiPitchBend{
+	char status; //0xE0
 	char lsb;
 	char msb;
 };
 struct __midiVolume{
 	char status; //0xB0
 	char control; //0x07
-	char value;
+	char val;
+};
+struct __midiAllNoteOff{
+	char status; //0xB0
+	char control; //0x07
+	char val;
 };
 // Global variables
 struct __capTime globT[6];
+struct __midiNoteOn noteOn;
+struct __midiPitchBend pitchBend;
+struct __midiVolume volume;
+struct __midiAllNoteOff allOff;
+char prevNote;
+char prevVol;
 char capCalib[6];
 char baseBreathValue;
+char breathValue;
 volatile char tempVal = 0;
 char intrCnt;
 volatile char overflow = 0;
-
 int main(void)
 {
 	int i = 0;
@@ -70,12 +83,7 @@ int main(void)
 	sei();
 	_delay_ms(100);
 	calibrate();
-	calibrate();
-	calibrate();
-	calibrate();
-	calibrate();
-	calibrate();
-    mainLoop();
+	mainLoop();
 }
 
 //-----------------------------------------------------------------------------------------------------------------
@@ -84,15 +92,18 @@ int main(void)
 void mainLoop()
 {
 	char i;
-	char note;
 	int vol;
 	while(1){
+		//_delay_ms(1000);
 		senseCap();
-		//note = genNote();
-		i = getBlow();
-		//vol = genVolume();
-		//sendToCore(note,vol);
-		testSend();
+		getBlow();
+		
+		genNoteOn();
+		genPitchBend();
+		genVolume();
+		
+		sendToCore();
+		//testSend();
 	}	
 }
 
@@ -106,11 +117,12 @@ void initSystem()
 	initTimer();
 	initCapSense();
 	initPressureSense();
+	initMidi();
 }
 
 void initTimer()
 {
-	TCCR0B = (1<<CS01); //can change registers to increase frequency
+	TCCR1B = (1<<CS10); //can change registers to increase frequency
 	
 	WDTCSR &= ~(1<<WDE); //disable watchdog timer
 }
@@ -163,14 +175,50 @@ void initPressureSense()
 	ADCSRA |= (1<<ADEN)|(1<<ADSC)|(1<<ADATE); //use ADLAR to read
 
 }
+void initMidi()
+{
+	noteOn.status = 0x90;
+	noteOn.velocity = 0x00;
+	noteOn.note = 0x00;
+	/*old volume status = b0, 07, 00*/
+	volume.status = 0xB0; //uncomment this set for volume
+	volume.control = 0x07;
+	volume.val = 0x00;
+	/*volume.status = 0xD0;  // after touch
+	volume.control = 0xFF;
+	volume.val = 0x00; */
+	pitchBend.status = 0xE0;
+	pitchBend.lsb = 0x00;
+	pitchBend.msb = 0x00;
+	allOff.status = 0xB0;
+	allOff.control = 0x7B;
+	allOff.val = 0x00;
+}
 void calibrate()
 {
-	senseCap();
-	for (int i = 0; i < 6; i++)
-	{
-		globT[i].calibration = globT[i].time + CAP_LOW_THRESH;
+	int arr[11][6];
+	//int arr[66];
+	int k;
+	int new;
+	for (int i = 0; i < 11; i++) //sort 11 samples of each
+	{	
+		senseCap();
+		for (int j = 0; j < 6; j++)
+		{
+			new = globT[j].time;
+			for (k = i; k > 0 && arr[k-1][j] > new; k--)
+			{
+				arr[k][j] = arr[k-1][j];
+			}
+			arr[k][j] = new;
+		}
 	}
-	
+	for (int i = 0; i < 6; i++) //find the median
+	{
+		globT[i].calibration = arr[5][i] + CAP_LOW_THRESH;
+	//	senseCap();
+		//globT[i].calibration = globT[i].time;
+	}
 	baseBreathValue = ADCH;
 }
 
@@ -178,9 +226,9 @@ void calibrate()
 // Helper functions
 //-----------------------------------------------------------------------------------------------------------------
 
-int getBlow(){
+void getBlow(){
 	char currBlow = ADCH;
-	return currBlow > baseBreathValue ? currBlow - baseBreathValue : 0;
+	breathValue = currBlow > baseBreathValue ? currBlow - baseBreathValue : 0;
 }
 
 void senseCap()
@@ -188,14 +236,14 @@ void senseCap()
 	int i;
 	PCICR = 1; //enable pin change interrupt
 	//toggle send pins and start time
-	TCCR0B = (1<<CS01);
-	TIMSK0 = ( 1<<TOIE0);
+	TCCR1B = (1<<CS10); //timer enable
+	TIMSK1 = ( 1<<TOIE0); //timer overflow interrupt
 
 	overflow = 0;
 	intrCnt = 0;
 	PORTD |= (1<<PIND4);
-	TCNT0 = 0;
-	globT[0].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[0].startTime = TCNT1;
 	waitForCap(0);
 	PORTD &= ~(1<<PIND4);
 	waitForCap(0);
@@ -203,8 +251,8 @@ void senseCap()
 	overflow = 0;
 	intrCnt = 1;
 	PORTB |= (1<<PINB6);
-	TCNT0 = 0;
-	globT[1].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[1].startTime = TCNT1;
 	waitForCap(1);
 	PORTB &= ~(1<<PINB6);
 	waitForCap(1);
@@ -212,8 +260,8 @@ void senseCap()
 	overflow = 0;
 	intrCnt = 2;
 	PORTD |= (1<<PIND6);
-	TCNT0 = 0;
-	globT[2].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[2].startTime = TCNT1;
 	waitForCap(2);
 	PORTD &= ~(1<<PIND6);
 	waitForCap(2);
@@ -221,8 +269,8 @@ void senseCap()
 	overflow = 0;
 	intrCnt = 3;
 	PORTD |= (1<<PIND7);
-	TCNT0 = 0;
-	globT[3].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[3].startTime = TCNT1;
 	waitForCap(3);
 	PORTD &= ~(1<<PIND7);
 	waitForCap(3);
@@ -230,8 +278,8 @@ void senseCap()
 	overflow = 0;
 	intrCnt = 4;
 	PORTC |= (1<<PINC6);
-	TCNT0 = 0;
-	globT[4].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[4].startTime = TCNT1;
 	waitForCap(4);
 	PORTC &= ~(1<<PINC6);
 	waitForCap(4);
@@ -239,14 +287,14 @@ void senseCap()
 	overflow = 0;
 	intrCnt = 5;
 	PORTC |= (1<<PINC7);
-	TCNT0 = 0;
-	globT[5].startTime = TCNT0;
+	TCNT1 = 0;
+	globT[5].startTime = TCNT1;
 	waitForCap(5);
 	PORTC &= ~(1<<PINC7);
 	waitForCap(5);
 	
-	TIMSK0 &= ~( 1<<TOIE0);
-	TCCR0B = 0;
+	TIMSK1 &= ~( 1<<TOIE0);
+	TCCR1B = 0;
 	PCICR = 0; //disable pin change interrupts
 }
 void waitForCap(char i)
@@ -254,7 +302,7 @@ void waitForCap(char i)
 	while(globT[i].capWaiting == 1 && overflow == 0);
 	globT[i].capWaiting = 1;
 	if ( overflow == 1){
-		globT[i].time = 0xF0;
+		globT[i].time = 0xDEAD;
 	}
 	
 }
@@ -269,50 +317,134 @@ ISR(PCINT0_vect)
 		globT[intrCnt].capWaiting = 0;
 		globT[intrCnt].prevVal = val;
 		if (val == 1)
-			globT[intrCnt].time = TCNT0 - globT[intrCnt].startTime; //endTime-startTime
+			globT[intrCnt].time = TCNT1 - globT[intrCnt].startTime; //endTime-startTime
 	}
 }
-ISR(TIMER0_OVF_vect)
+ISR(TIMER1_OVF_vect)
 {
 	overflow = 1;
 }
 //generate MIDI
 void genPitchBend()
 {
-
+	pitchBend.lsb = 0;
+	pitchBend.msb = 0;
 }
 void genVolume()
 {
-
+	prevVol = volume.val;
+	volume.val = (breathValue >= PRESS_HIGH_THRESH) ? 127 : (breathValue * 127) / PRESS_HIGH_THRESH;
 }
-void genNote()
+void genNoteOn()
 {
-	//Status
+	prevNote = noteOn.note;
+	char touched = genTouched();
+	switch (touched)
+	{
+		case 0x3F: noteOn.note = 62; break;
+		case 0x3E: noteOn.note = 64; break;
+		case 0x3C: noteOn.note = 66; break;
+		case 0x38: noteOn.note = 67; break;
+		case 0x30: noteOn.note = 69; break;
+		case 0x20: noteOn.note = 71; break;
+		case 0x00: noteOn.note = 73; break;
+		case 0x1F: noteOn.note = 74; break;
+		default: noteOn.note = 27; break;
+	}
+	noteOn.velocity = (breathValue >= PRESS_HIGH_THRESH) ? 127 : (breathValue * 127) / PRESS_HIGH_THRESH;
+}
+char genTouched()
+{
+	char retByte = 0;
+	for (int i = 0; i < 6; i++)
+	{
+		if (globT[i].time > globT[i].calibration) {
+			//retByte = retByte << 1 | 0x01;
+			retByte |= 1<<i;
+		}/*
+		else {
+			//retByte == retByte << 1;
+		}*/
+	}
+	return retByte;
+}
+///////////////TRANSMISSION
+void sendToCore()
+{
+	if (volume.val <= 7)
+	{
+		TransmitByte(allOff.status);
+		_delay_ms(2);
+		TransmitByte(allOff.control);
+		_delay_ms(2);
+		TransmitByte(allOff.val);
+		_delay_ms(2);
+	}
+	else
+	{
+		if (prevNote != noteOn.note || prevVol == 0)
+		{
+			TransmitByte(allOff.status);
+			_delay_ms(2);
+			TransmitByte(allOff.control);
+			_delay_ms(2);
+			TransmitByte(allOff.val);
+			_delay_ms(2);
+			
+			TransmitByte(noteOn.status);
+			_delay_ms(2);
+			TransmitByte(noteOn.note);
+			_delay_ms(2);
+			TransmitByte(noteOn.velocity);
+			_delay_ms(2);
+
+		}
+		TransmitByte(volume.status);
+		_delay_ms(2);
+		TransmitByte(volume.control);
+		_delay_ms(2);
+		TransmitByte(volume.val);
+		_delay_ms(2);
+		
+		TransmitByte(pitchBend.status);
+		_delay_ms(2);
+		TransmitByte(pitchBend.lsb);
+		_delay_ms(2);
+		TransmitByte(pitchBend.msb);
+		_delay_ms(2);
+	}
 }
 void testSend()
 {
 	int i;
-	unsigned char checksum = 0;
-	unsigned char transVal;
+	unsigned int checksum = 0;
+	unsigned int transVal;
 	for (i=0; i<6;i++){
-		if (globT[i].time == 0xF0)
-			transVal = 0xF0;
+		if (globT[i].time == 0xDEAD)
+			transVal = 0xDEAD;
 		//else if (globT[i].time > CAP_HIGH_THRESH + globT[i].calibration)
 		//	transVal = 0xFF;
 		else if (globT[i].time > globT[i].calibration)
 			transVal = globT[i].time - globT[i].calibration;
 		else
 			transVal = 0;
-		TransmitByte(transVal);
+		TransmitWord(transVal);
 		checksum += transVal;
-		_delay_ms(2);
 	}
-	TransmitByte(checksum);
+	TransmitWord((unsigned int)breathValue);
+	checksum += breathValue;
+	TransmitWord(checksum);
 }
 //transmit spi
+void TransmitWord( unsigned int data)
+{
+	TransmitByte((unsigned char)((data >> 8) & 0x00FF));
+	_delay_ms(2);
+	TransmitByte((unsigned char)(data & 0x00FF));
+	_delay_ms(2);
+}
 void TransmitByte( unsigned char data )
 {
-	while ( !(UCSR1A & (1 << UDRE1)) )
-		; 			                /* Wait for empty transmit buffer */
-	UDR1 = data; 			        /* Start transmittion */
+	while ( !(UCSR1A & (1 << UDRE1)) );/* Wait for empty transmit buffer */
+	UDR1 = data; 			           /* Start transmittion */
 }
